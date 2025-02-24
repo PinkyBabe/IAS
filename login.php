@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         } else {
             // Send failed login attempt email
-            $failedLoginMessage = "Someone attempted to login to your account with incorrect password.\nIP Address: " . $_SERVER['REMOTE_ADDR'];
+            $failedLoginMessage = "Someone attempted to login to your account with incorrect password.\n You are advised to change your password. \nIP Address: " . $_SERVER['REMOTE_ADDR'];
             sendEmail($email, 'Failed Login Attempt', $failedLoginMessage);
             
             logActivity($row['id'], "Failed login attempt");

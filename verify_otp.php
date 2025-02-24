@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         exit();
     } else {
         // Send breach attempt email
-        $breachMessage = "Someone attempted to access your account with an invalid OTP.\nIP Address: " . $_SERVER['REMOTE_ADDR'];
+        $breachMessage = "Someone attempted to access your account with an invalid OTP.\n You are advised to change your password.\nIP Address: " . $_SERVER['REMOTE_ADDR'];
         sendEmail($user['email'], 'Security Alert - Invalid OTP Attempt', $breachMessage);
         
         logActivity($userId, "Invalid OTP attempt");
