@@ -20,25 +20,45 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $scheduleTime = trim($_POST['schedule_time']);
     $reminderTime = intval($_POST['reminder_time']);
 
+    // Validate schedule date and time are in the future
+    $scheduleDateTime = new DateTime($scheduleDate . ' ' . $scheduleTime);
+    $now = new DateTime();
+    
+    if ($scheduleDateTime <= $now) {
+        $_SESSION['schedule_error'] = "Schedule time must be in the future.";
+        header("Location: dashboard.php");
+        exit();
+    }
+
     if (!$conn) {
         die("Database connection error.");
     }
+
+    // Format the time to ensure consistent storage with dashboard display
+    $formattedTime = date('H:i:s', strtotime($scheduleTime));
 
     $stmt = $conn->prepare("INSERT INTO schedules (user_id, activity_name, schedule_date, schedule_time, reminder_time) VALUES (?, ?, ?, ?, ?)");
     if (!$stmt) {
         die("Error preparing statement: " . $conn->error);
     }
 
-    $stmt->bind_param("isssi", $userId, $activityName, $scheduleDate, $scheduleTime, $reminderTime);
+    $stmt->bind_param("isssi", $userId, $activityName, $scheduleDate, $formattedTime, $reminderTime);
 
     if ($stmt->execute()) {
         if (function_exists('logActivity')) {
             logActivity($userId, "Added new schedule: $activityName");
         }
+        $_SESSION['schedule_success'] = "Schedule added successfully!";
         header("Location: dashboard.php");
         exit();
     } else {
-        die("Error executing query: " . $stmt->error);
+        $_SESSION['schedule_error'] = "Failed to add schedule. Please try again.";
+        header("Location: dashboard.php");
+        exit();
     }
 }
+
+// If no post data, redirect back to dashboard
+header("Location: dashboard.php");
+exit();
 ?>

@@ -1,6 +1,11 @@
 <?php
 require_once 'config.php';
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Ensure user comes from CAPTCHA verification
 if (!isset($_SESSION['temp_user_id'])) {
     header("Location: login.php");
     exit();
@@ -17,13 +22,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $user = $result->fetch_assoc();
 
     if ($user['otp'] == $otp && strtotime($user['otp_expiry']) > time()) {
+        // Log user in
         $_SESSION['user_id'] = $userId;
+        unset($_SESSION['temp_user_id']); // Remove temp session
         logActivity($userId, "Successful login");
         header("Location: dashboard.php");
         exit();
     } else {
         // Send breach attempt email
-        $breachMessage = "Someone attempted to access your account with an invalid OTP.\n You are advised to change your password.\nIP Address: " . $_SERVER['REMOTE_ADDR'];
+        $breachMessage = "Someone attempted to access your account with an invalid OTP.\nYou are advised to change your password.\nIP Address: " . $_SERVER['REMOTE_ADDR'];
         sendEmail($user['email'], 'Security Alert - Invalid OTP Attempt', $breachMessage);
         
         logActivity($userId, "Invalid OTP attempt");

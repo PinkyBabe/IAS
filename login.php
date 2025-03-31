@@ -2,48 +2,80 @@
 require_once 'config.php';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $email = $_POST['email'];
-    $password = $_POST['password'];
+    // Verify captcha (case-insensitive)
+    $captcha_entered = isset($_POST['captcha']) ? strtolower(trim($_POST['captcha'])) : '';
+    $captcha_session = isset($_SESSION['captcha']) ? strtolower($_SESSION['captcha']) : '';
 
-    $stmt = $conn->prepare("SELECT id, email, password FROM users WHERE email = ?");
-    $stmt->bind_param("s", $email);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    if ($captcha_entered !== $captcha_session) {
+        $error = "Invalid captcha. Please try again.";
+    } else {
+        $email = $_POST['email'];
+        $password = $_POST['password'];
 
-    if ($row = $result->fetch_assoc()) {
-        if (password_verify($password, $row['password'])) {
-            // Generate OTP
-            $otp = sprintf("%06d", mt_rand(0, 999999));
-            $expiry = date('Y-m-d H:i:s', strtotime('+5 minutes'));
-            
-            $stmt = $conn->prepare("UPDATE users SET otp = ?, otp_expiry = ? WHERE id = ?");
-            $stmt->bind_param("ssi", $otp, $expiry, $row['id']);
-            
-            if ($stmt->execute()) {
-                // Send OTP email
-                $otpMessage = "Your OTP code is: $otp\nValid for 5 minutes.";
-                if (sendEmail($email, 'Your OTP Code', $otpMessage)) {
-                    $_SESSION['temp_user_id'] = $row['id'];
-                    header("Location: verify_otp.php");
-                    exit();
+        $stmt = $conn->prepare("SELECT id, email, password FROM users WHERE email = ?");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($row = $result->fetch_assoc()) {
+            if (password_verify($password, $row['password'])) {
+                // Generate OTP
+                $otp = sprintf("%06d", mt_rand(0, 999999));
+                $expiry = date('Y-m-d H:i:s', strtotime('+5 minutes'));
+
+                $stmt = $conn->prepare("UPDATE users SET otp = ?, otp_expiry = ? WHERE id = ?");
+                $stmt->bind_param("ssi", $otp, $expiry, $row['id']);
+
+                if ($stmt->execute()) {
+                    // Send OTP email
+                    $otpMessage = "Your OTP code is: $otp\nValid for 5 minutes.";
+                    if (sendEmail($email, 'Your OTP Code', $otpMessage)) {
+                        $_SESSION['temp_user_id'] = $row['id'];
+                        unset($_SESSION['captcha']); // Reset captcha after successful verification
+                        header("Location: verify_otp.php");
+                        exit();
+                    } else {
+                        $error = "Failed to send OTP email. Please try again.";
+                    }
                 } else {
-                    $error = "Failed to send OTP email. Please try again.";
+                    $error = "System error. Please try again.";
                 }
             } else {
-                $error = "System error. Please try again.";
+                // Send failed login attempt email
+                $failedLoginMessage = "Someone attempted to login to your account with an incorrect password.\nYou are advised to change your password.\nIP Address: " . $_SERVER['REMOTE_ADDR'];
+                sendEmail($email, 'Failed Login Attempt', $failedLoginMessage);
+
+                logActivity($row['id'], "Failed login attempt");
+                $error = "Invalid credentials.";
             }
         } else {
-            // Send failed login attempt email
-            $failedLoginMessage = "Someone attempted to login to your account with incorrect password.\n You are advised to change your password. \nIP Address: " . $_SERVER['REMOTE_ADDR'];
-            sendEmail($email, 'Failed Login Attempt', $failedLoginMessage);
-            
-            logActivity($row['id'], "Failed login attempt");
-            $error = "Invalid credentials";
+            $error = "Invalid credentials.";
         }
-    } else {
-        $error = "Invalid credentials";
+    }
+
+    // Regenerate captcha on error
+    if (!empty($error)) {
+        $_SESSION['show_captcha'] = true;
+        $_SESSION['captcha'] = generateCaptcha();
     }
 }
+
+
+// Generate captcha text
+function generateCaptcha() {
+    $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    $captcha_text = '';
+    
+    for ($i = 0; $i < 6; $i++) { // Generate a 6-character captcha
+        $captcha_text .= $characters[rand(0, strlen($characters) - 1)];
+    }
+
+    $_SESSION['captcha'] = strtolower($captcha_text); // Store lowercase for case-insensitive comparison
+    return $captcha_text;
+}
+
+
+$captcha_text = generateCaptcha();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -52,6 +84,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Remind</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .captcha-container {
+            background-image: url('data:image/svg+xml;base64,<?php echo base64_encode('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100%" height="100%" fill="#f0f0f0" /></svg>'); ?>');
+            font-family: 'Comic Sans MS', cursive, sans-serif;
+            letter-spacing: 2px;
+            position: relative;
+        }
+        .captcha-text {
+            transform: rotate(-5deg);
+            display: inline-block;
+            position: relative;
+            font-weight: bold;
+        }
+        .captcha-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: rgba(0,0,0,0.3);
+            transform: rotate(<?php echo rand(-5, 5); ?>deg);
+            top: <?php echo rand(30, 70); ?>%;
+            z-index: 1;
+        }
+    </style>
 </head>
 <body class="bg-gradient-to-r from-blue-500 to-purple-600 min-h-screen flex items-center justify-center">
     <div class="bg-white p-10 rounded-2xl shadow-2xl w-full max-w-sm">
@@ -80,6 +135,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </svg>
                 </button>
             </div>
+            
+            <!-- Captcha Section -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Captcha Verification</label>
+                <div class="mt-1 p-4 border rounded-lg captcha-container bg-gray-50">
+                    <div class="captcha-line"></div>
+                    <div class="captcha-text text-xl font-semibold tracking-wider text-center py-2" 
+                         style="color: rgba(<?php echo rand(0, 100); ?>,<?php echo rand(0, 100); ?>,<?php echo rand(0, 100); ?>,0.8);">
+                        <?php 
+                            $chars = str_split($captcha_text);
+                            foreach($chars as $char) {
+                                echo '<span style="transform: rotate('.rand(-15, 15).'deg); display:inline-block;">'.$char.'</span>';
+                            }
+                        ?>
+                    </div>
+                </div>
+                <input type="text" name="captcha" required placeholder="Enter the text shown above" 
+                    class="mt-2 block w-full rounded-lg border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-4 py-2">
+            </div>
+            
             <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold transition duration-300 hover:bg-blue-700 shadow-md">Login</button>
         </form>
 
